@@ -1,0 +1,12 @@
+{
+  "network": "polygon",
+  "chainId": 137,
+  "timestamp": "2025-11-22T14:29:22.236Z",
+  "deployer": "0x6247d7b8b5F667662572b1C249EF1F1483CBFC14",
+  "contracts": {
+    "FlexCreditCore": "0x239f6Dfd77c4D5FF3017daAD4d3D3cD8758Cc030",
+    "AgentPolicy": "0x6b7FD37c4325a2196B77BaD67F570F8f6544C37E",
+    "IncomeProofVerifier": "0x8b00dEE5209e73F1D92bE834223D3497c57b4263",
+    "AgentPerformanceVerifier": "0xe75Fd063e74780B26f38418a424069374c746C49"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "deploy:agent": "hardhat run scripts/deployAgentWallet.js --network usdcTestnet",
+    "verify:agent": "hardhat verify --network usdcTestnet",
+    "console:testnet": "hardhat console --network usdcTestnet"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.19.0",
+    "dotenv": "^16.3.1"
+  }
+}
