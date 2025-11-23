@@ -1,5 +1,5 @@
 {
-  "name": "credi-app",
+  "name": "cred-app",
   "version": "1.0.0",
   "main": "index.tsx",
   "scripts": {
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@avail-project/nexus-core": "^0.0.2",
+    "@erc7824/nitrolite": "^0.4.0",
     "@ethersproject/shims": "^5.8.0",
     "@expo/metro-runtime": "~6.1.2",
     "@expo/vector-icons": "^15.0.3",
@@ -37,6 +38,7 @@
     "expo-web-browser": "^15.0.9",
     "express": "^5.1.0",
     "node-fetch": "^2.7.0",
+    "process": "^0.11.10",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -51,6 +53,7 @@
     "react-native-svg": "15.12.1",
     "react-native-web": "^0.21.0",
     "react-native-webview": "13.15.0",
+    "readable-stream": "^4.7.0",
     "stream-browserify": "^3.0.0",
     "viem": "^2.39.0"
   },

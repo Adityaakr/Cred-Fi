@@ -1,0 +1,17 @@
+#!/bin/bash
+
+echo "🤖 DeFi AI Agent Setup"
+echo ""
+echo "✅ All dependencies are already installed!"
+echo ""
+echo "📋 Next steps:"
+echo "1. Add your OpenAI API key to .env file"
+echo "2. Get API key from: https://platform.openai.com/api-keys"
+echo "3. Update .env: OPENAI_API_KEY=sk-proj-your-key-here"
+echo "4. Restart your dev server"
+echo "5. Read DEFI_AGENT_SETUP.md for full guide"
+echo ""
+echo "ℹ️  Note: Agent uses your existing credit line infrastructure"
+echo "   No additional blockchain SDKs needed for React Native!"
+echo ""
+echo "🚀 Ready to start autonomous trading!"

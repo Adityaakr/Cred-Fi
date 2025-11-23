@@ -55,3 +55,28 @@ build/
 # Documentation (exclude all .md files except README.md)
 *.md
 !README.md
+
+# Test files
+*.test.js
+*.test.ts
+*.test.tsx
+*.spec.js
+*.spec.ts
+*.spec.tsx
+test-*.js
+test-*.ts
+
+# Backup files
+*.backup
+*.backup.*
+*.old
+*.old.*
+
+# Deployment files
+deploy-now.mjs
+deploy-simple.cjs
+deploy-simple.js
+deployment-*.json
+
+# Embedded repositories
+hedera-agent-kit-js/

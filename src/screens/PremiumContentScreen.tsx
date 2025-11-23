@@ -124,7 +124,7 @@ Maximal Extractable Value - profit from transaction ordering
         walletAddress,
         '0x337610d27c682E347C9cD60BD4b3b107C9d34dDd', // USDT on usdc Testnet
         item.price.toString(),
-        '0x5a26514ce0af943540407170b09cea03cbff5570', // Recipient
+        '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3', // Recipient (wallet with funds)
         `Unlock: ${item.title}`
       );
 

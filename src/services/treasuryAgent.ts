@@ -204,7 +204,7 @@ class TreasuryAgentService {
         walletAddress,
         '0x337610d27c682E347C9cD60BD4b3b107C9d34dDd', // USDT
         amount.toString(),
-        '0x5a26514ce0af943540407170b09cea03cbff5570', // Treasury service recipient
+        '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3', // Treasury service recipient (wallet with funds)
         'Treasury monitoring fee'
       );
 

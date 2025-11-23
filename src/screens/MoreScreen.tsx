@@ -182,7 +182,7 @@ export const MoreScreen = ({ walletAddress }: MoreScreenProps) => {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>Built on usdc Chain • Powered by BPN</Text>
-        <Text style={styles.footerCopyright}>© 2024 FLEX</Text>
+        <Text style={styles.footerCopyright}>© 2024 Cred</Text>
       </View>
 
       {/* Credit History Sheet */}

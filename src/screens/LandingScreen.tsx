@@ -64,7 +64,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onLaunchApp }) => 
                 <Text style={styles.logoText}>C</Text>
               </LinearGradient>
             </View>
-            <Text style={styles.appName}>CREDI</Text>
+            <Text style={styles.appName}>CRED</Text>
             <View style={styles.versionBadge}>
               <Text style={styles.versionText}>v2.0</Text>
             </View>

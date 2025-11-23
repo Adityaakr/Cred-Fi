@@ -9,16 +9,24 @@ import { Vouch } from '@getvouch/sdk';
 const VOUCH_CUSTOMER_ID = process.env.NEXT_PUBLIC_VOUCH_CUSTOMER_ID || '1be03be8-5014-413c-835a-feddf4020da2';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:8081';
 
+// Export for server-side usage
+export const VOUCH_USDC = process.env.NEXT_PUBLIC_VOUCH_USDC || '1be03be8-5014-413c-835a-feddf4020da2';
+
 // Data source IDs
 export const DATASOURCES = {
   BINANCE_BALANCE: 'a3d15595-76f0-4e2f-9fbb-e98bcbe2782a', // Binance - Proof of Balance
   WISE_TRANSACTION: '736ba397-e3dc-428d-b2f7-6bac03523edd', // Wise - Proof of Transaction
+  WISE_INCOME: '4a443312-1e92-4080-b0e5-3d5a1a46930b', // Wise - Proof of Income (Attestation UID)
 };
 
 export class VouchClientService {
   private vouch: Vouch;
 
   constructor() {
+    // Initialize Vouch SDK
+    // Note: The "edit mode" warning is normal in development
+    // It means you're using test/development data sources
+    // In production, use verified data source IDs from Vouch dashboard
     this.vouch = new Vouch();
   }
 
@@ -118,21 +126,189 @@ export class VouchClientService {
   }
 
   /**
-   * Get proof data from Vouch API
+   * Start Wise income verification flow using attestation UID
+   */
+  async startWiseIncomeVerification(attestationUid: string): Promise<{
+    requestId: string;
+    verificationUrl: string;
+  }> {
+    const requestId = crypto.randomUUID();
+    
+    // Use the attestation UID as datasource ID for income proof
+    const params: any = {
+      requestId,
+      datasourceId: attestationUid,
+      customerId: VOUCH_CUSTOMER_ID,
+      redirectBackUrl: `${APP_URL}/credit?vouch=wise-income&requestId=${requestId}`,
+    };
+
+    // Only add webhookUrl if using HTTPS
+    if (APP_URL.startsWith('https://')) {
+      params.webhookUrl = `${APP_URL}/api/vouch/webhook`;
+    }
+
+    const verificationUrl = this.vouch.getStartUrl(params);
+
+    console.log('🔗 Wise income verification URL generated:', {
+      requestId,
+      attestationUid,
+      url: verificationUrl.toString(),
+      hasWebhook: !!params.webhookUrl,
+    });
+
+    return {
+      requestId,
+      verificationUrl: verificationUrl.toString(),
+    };
+  }
+
+  /**
+   * Get REAL proof data from Vouch API
+   * Fetches actual attestation data from Vouch's API
    */
   async getProof(requestId: string): Promise<any | null> {
     try {
-      console.log('📡 Fetching proof from Vouch API:', requestId);
+      console.log('📡 Fetching REAL proof from Vouch API:', requestId);
       
-      // Use Vouch SDK to get proof status
-      // Note: Vouch SDK doesn't have a direct getProof method yet
-      // For now, return null to indicate proof not ready
-      // In production, you'd call Vouch API or use webhook
+      // Try multiple API endpoints (Vouch API structure may vary)
+      const endpoints = [
+        `https://verify.vouch.io/api/attestations/${requestId}`,
+        `https://api.vouch.io/attestations/${requestId}`,
+        `https://vouch.io/api/v1/attestations/${requestId}`,
+      ];
+
+      let attestationData = null;
+      let lastError = null;
+
+      for (const endpoint of endpoints) {
+        try {
+          console.log('🔍 Trying endpoint:', endpoint);
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (response.ok) {
+            attestationData = await response.json();
+            console.log('✅ REAL attestation data received from:', endpoint, attestationData);
+            break;
+          } else if (response.status === 404) {
+            console.log('⏳ Attestation not found at:', endpoint);
+            continue;
+          } else {
+            console.warn('⚠️ API error at', endpoint, ':', response.status);
+            continue;
+          }
+        } catch (err: any) {
+          console.warn('⚠️ Failed to fetch from', endpoint, ':', err.message);
+          lastError = err;
+          continue;
+        }
+      }
+
+      if (!attestationData) {
+        console.log('⏳ Attestation not ready yet (tried all endpoints)');
+        return null;
+      }
+
+      // Parse the attestation to extract income/balance
+      // Vouch attestations have a specific schema
+      const attestation = attestationData.attestation || attestationData;
       
-      console.log('⚠️ Vouch SDK getProof not implemented yet');
-      return null;
-    } catch (error) {
-      console.error('Error fetching proof from Vouch:', error);
+      console.log('🔍 Full attestation object:', JSON.stringify(attestation, null, 2));
+      
+      // Extract the actual data from the attestation
+      let income = 0;
+      let balance = 0;
+      
+      // Try multiple data extraction methods
+      
+      // Method 1: decodedDataJson (most common)
+      if (attestation.decodedDataJson) {
+        try {
+          const decodedData = typeof attestation.decodedDataJson === 'string' 
+            ? JSON.parse(attestation.decodedDataJson) 
+            : attestation.decodedDataJson;
+          
+          console.log('📊 Decoded attestation data:', decodedData);
+          
+          // Try different field names for income/balance
+          income = parseFloat(decodedData.totalIncome || 
+                   decodedData.income || 
+                   decodedData.total_balance || 
+                   decodedData.balance || 
+                   decodedData.amount ||
+                   decodedData.value ||
+                   0);
+          
+          balance = parseFloat(decodedData.balance || 
+                    decodedData.total_balance || 
+                    decodedData.amount ||
+                    income ||
+                    0);
+        } catch (err) {
+          console.error('Error parsing decodedDataJson:', err);
+        }
+      }
+
+      // Method 2: Raw data field
+      if (income === 0 && attestation.data) {
+        try {
+          const rawData = typeof attestation.data === 'string' 
+            ? JSON.parse(attestation.data) 
+            : attestation.data;
+          
+          console.log('📊 Raw attestation data:', rawData);
+          
+          income = parseFloat(rawData.totalIncome || 
+                   rawData.income || 
+                   rawData.balance || 
+                   rawData.amount ||
+                   rawData.value ||
+                   0);
+          
+          balance = parseFloat(rawData.balance || income || 0);
+        } catch (err) {
+          console.error('Error parsing raw data:', err);
+        }
+      }
+
+      // Method 3: Direct fields on attestation
+      if (income === 0) {
+        income = parseFloat(attestation.totalIncome || 
+                 attestation.income || 
+                 attestation.balance || 
+                 attestation.amount ||
+                 0);
+        balance = parseFloat(attestation.balance || income || 0);
+      }
+
+      console.log('💰 Extracted income:', income, 'INR, balance:', balance, 'INR');
+
+      return {
+        requestId,
+        status: 'verified',
+        timestamp: attestation.time || new Date().toISOString(),
+        attestationUid: attestation.uid || requestId,
+        metadata: {
+          income: income,
+          balance: balance,
+          currency: 'INR',
+          source: 'wise',
+          verified: true,
+        },
+        data: {
+          balance: balance,
+          accountVerified: true,
+          verificationMethod: 'vouch-attestation',
+          attestationUid: attestation.uid || requestId,
+        },
+        rawAttestation: attestation,
+      };
+    } catch (error: any) {
+      console.error('❌ Error fetching proof from Vouch:', error);
       return null;
     }
   }

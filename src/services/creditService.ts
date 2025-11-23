@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { ethers, formatEther, parseEther, Wallet, JsonRpcProvider } from 'ethers';
 
 interface Transaction {
   hash: string;
@@ -17,10 +17,32 @@ interface CreditScore {
 }
 
 export class CreditService {
-  private rpcUrl = 'https://data-seed-prebsc-1-s1.binance.org:8545/';
-  private apiUrl = 'https://api-testnet.bscscan.com/api';
-  private apiKey = 'YourApiKeyToken'; // BscScan API key (optional for testnet)
-  private creditVaultAddress = '0x5a26514ce0af943540407170b09cea03cbff5570'; // Credit vault contract
+  // Polygon Mainnet configuration (matches Privy setup)
+  private rpcUrl = 'https://polygon-bor-rpc.publicnode.com';
+  private apiUrl = 'https://api.polygonscan.com/api';
+  private apiKey = 'YourApiKeyToken'; // PolygonScan API key (optional)
+  private creditVaultAddress = '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3'; // Credit vault (wallet with funds)
+  private chainId = 137; // Polygon Mainnet
+  private provider: JsonRpcProvider;
+  private wallet: Wallet | null = null;
+
+  constructor() {
+    this.provider = new JsonRpcProvider(this.rpcUrl);
+    
+    // Initialize wallet with private key if available
+    // Use EXPO_PUBLIC_ prefix for client-side access
+    const privateKey = process.env.EXPO_PUBLIC_VAULT_PRIVATE_KEY || process.env.PRIVATE_KEY;
+    if (privateKey) {
+      try {
+        this.wallet = new Wallet(privateKey, this.provider);
+        console.log('✅ Credit vault wallet initialized:', this.wallet.address);
+      } catch (error) {
+        console.error('❌ Failed to initialize vault wallet:', error);
+      }
+    } else {
+      console.warn('⚠️ No private key found in environment variables');
+    }
+  }
 
   /**
    * Get credit data for wallet (for treasury agent)
@@ -66,7 +88,7 @@ export class CreditService {
     
     transactions.forEach(tx => {
       const timestamp = parseInt(tx.timeStamp);
-      const value = parseFloat(ethers.utils.formatEther(tx.value));
+      const value = parseFloat(formatEther(tx.value));
       
       // Only count last 30 days
       if (timestamp >= thirtyDaysAgo) {
@@ -197,7 +219,7 @@ export class CreditService {
   }
 
   /**
-   * Borrow USDT - sends transaction to credit vault
+   * Borrow USDT - Privy signs with vault wallet (0x9C6C...80B3)
    */
   async borrow(
     walletAddress: string,
@@ -205,31 +227,41 @@ export class CreditService {
     sendTransaction: any
   ): Promise<string> {
     try {
-      console.log('🏦 Borrowing', amount, 'USDT to vault:', this.creditVaultAddress);
+      console.log('🏦 Initiating borrow transaction');
+      console.log('  - Borrower:', walletAddress);
+      console.log('  - Amount:', amount, 'USDT');
+      console.log('  - Vault Wallet:', this.creditVaultAddress);
       
-      // Send transaction to credit vault address with specific wallet
-      const result = await sendTransaction(
-        {
-          to: this.creditVaultAddress,
-          value: '100000000000000', // 0.0001 usdc in wei
-          chainId: 97,
-        },
-        {
-          address: '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3'
-        }
-      );
+      // Use Privy to send transaction with vault wallet
+      // FORCE use the specific recipient address
+      const recipientAddress = '0x6247d7b8b5f667662572b1c249ef1f1483cbfc14';
       
-      console.log('✅ Borrow transaction:', result);
+      console.log('📱 Privy signing with vault wallet...');
+      console.log('  - From:', this.creditVaultAddress);
+      console.log('  - To:', recipientAddress);
+      console.log('  - Value:', (amount * 0.001), 'POL');
       
-      return result?.transactionHash || result?.hash || result || 'success';
+      const result = await sendTransaction({
+        to: recipientAddress, // Send TO specific address
+        value: parseEther((amount * 0.001).toString()), // Convert USDT to POL (keep as BigInt)
+        chainId: this.chainId,
+      }, {
+        address: this.creditVaultAddress, // Specify vault wallet address
+      });
+      
+      const txHash = result?.transactionHash || result?.hash || result;
+      console.log('✅ Borrow transaction sent:', txHash);
+      console.log('  - View on PolygonScan: https://polygonscan.com/tx/' + txHash);
+      
+      return txHash;
     } catch (error: any) {
-      console.error('❌ Borrow failed:', error);
-      throw new Error(error.message || 'Failed to borrow');
+      console.error('❌ Borrow transaction failed:', error);
+      throw new Error(error.message || 'Failed to send borrow transaction');
     }
   }
 
   /**
-   * Repay USDT - sends transaction to credit vault
+   * Repay USDT - Privy signs with vault wallet (0x9C6C...80B3)
    */
   async repay(
     walletAddress: string,
@@ -237,26 +269,33 @@ export class CreditService {
     sendTransaction: any
   ): Promise<string> {
     try {
-      console.log('💰 Repaying', amount, 'USDT to vault:', this.creditVaultAddress);
+      console.log('💰 Initiating repay transaction');
+      console.log('  - Repayer:', walletAddress);
+      console.log('  - Amount:', amount, 'USDT');
+      console.log('  - Vault Wallet:', this.creditVaultAddress);
       
-      // Send transaction to credit vault address with specific wallet
-      const result = await sendTransaction(
-        {
-          to: this.creditVaultAddress,
-          value: '100000000000000', // 0.0001 usdc in wei
-          chainId: 97,
-        },
-        {
-          address: '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3'
-        }
-      );
+      // Use Privy to send transaction with vault wallet
+      console.log('📱 Privy signing with vault wallet...');
+      console.log('  - From:', this.creditVaultAddress);
+      console.log('  - To: 0x6247d7b8b5f667662572b1c249ef1f1483cbfc14');
+      console.log('  - Value:', (amount * 0.0001), 'POL');
       
-      console.log('✅ Repay transaction:', result);
+      const result = await sendTransaction({
+        to: '0x6247d7b8b5f667662572b1c249ef1f1483cbfc14', // Send to different address (not self)
+        value: parseEther((amount * 0.0001).toString()), // Small amount to record (keep as BigInt)
+        chainId: this.chainId,
+      }, {
+        address: this.creditVaultAddress, // Specify vault wallet address
+      });
       
-      return result?.transactionHash || result?.hash || result || 'success';
+      const txHash = result?.transactionHash || result?.hash || result;
+      console.log('✅ Repay transaction sent:', txHash);
+      console.log('  - View on PolygonScan: https://polygonscan.com/tx/' + txHash);
+      
+      return txHash;
     } catch (error: any) {
-      console.error('❌ Repay failed:', error);
-      throw new Error(error.message || 'Failed to repay');
+      console.error('❌ Repay transaction failed:', error);
+      throw new Error(error.message || 'Failed to send repay transaction');
     }
   }
 
@@ -298,7 +337,7 @@ export class CreditService {
         
         return {
           type: 'borrow', // All txs to vault are borrows (repays would come from vault)
-          amount: parseFloat(ethers.utils.formatEther(tx.value)) * 600, // Convert to USD
+          amount: parseFloat(formatEther(tx.value)) * 600, // Convert to USD
           date: timeLabel,
           hash: tx.hash,
         };

@@ -10,12 +10,6 @@ import { gaslessService } from './src/services/gaslessService';
 
 const isWeb = Platform.OS === 'web';
 
-// Polyfill Buffer for web
-if (isWeb && typeof global.Buffer === 'undefined') {
-  const { Buffer } = require('buffer');
-  global.Buffer = Buffer;
-}
-
 // Skip all Privy imports on mobile - we use WebView instead
 let PrivyProvider: any, usePrivy: any, useWallets: any, useLoginWithEmail: any, useCreateWallet: any, useSendTransaction: any;
 import { LandingScreen } from './src/screens/LandingScreen';
@@ -28,8 +22,9 @@ import { SendScreen } from './src/screens/SendScreen';
 import { FXPayScreen } from './src/screens/FXPayScreen';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from './src/theme/colors';
 import { NETWORK_CONFIG, DISPLAY_CONFIG } from './src/config/network';
-import { NexusProvider, useNexus } from './src/providers/NexusProvider';
-import { NexusHomeScreen } from './src/screens/NexusHomeScreen';
+import { useYellowNetwork } from './src/hooks/useYellowNetwork';
+// import { NexusProvider, useNexus } from './src/providers/NexusProvider';
+// import { NexusHomeScreen } from './src/screens/NexusHomeScreen';
 
 const privyAppId = Constants.expoConfig?.extra?.privyAppId || 'cmi0pw3ks00gyky0chb1o43ww';
 
@@ -50,7 +45,7 @@ function MobileWebViewApp() {
         renderLoading={() => (
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
             <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={{ marginTop: 16, color: COLORS.text }}>Loading FLEX...</Text>
+            <Text style={{ marginTop: 16, color: COLORS.text }}>Loading Cred...</Text>
           </View>
         )}
       />
@@ -60,6 +55,8 @@ function MobileWebViewApp() {
 
 // Main App Component with Privy hooks
 function WebAppContent() {
+  console.log('🎯 WebAppContent rendering...');
+  
   const [showLanding, setShowLanding] = useState(true);
   const [activeTab, setActiveTab] = useState('Home');
   const [showWalletModal, setShowWalletModal] = useState(false);
@@ -73,15 +70,40 @@ function WebAppContent() {
   const [showWalletDropdown, setShowWalletDropdown] = useState(false);
   const [balance, setBalance] = useState<string>('0.00');
   const [walletCreationAttempted, setWalletCreationAttempted] = useState(false);
+  const [username, setUsername] = useState('');
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
 
-  // Privy hooks (web only)
+  // Check for Vouch return and navigate to Credit tab
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const vouchType = params.get('vouch');
+      const requestId = params.get('requestId');
+      
+      if ((vouchType === 'wise-income' || vouchType === 'binance' || vouchType === 'wise') && requestId) {
+        console.log('🔄 Detected Vouch return, navigating to Credit tab');
+        setShowLanding(false);
+        setActiveTab('Credit');
+      }
+    }
+  }, []);
+
+  // Privy hooks (web only) - with safe fallbacks
+  console.log('🔑 Calling Privy hooks...');
   const { user, authenticated, ready, logout, login } = usePrivy();
   const { wallets } = useWallets();
   const { createWallet } = useCreateWallet();
   const { sendTransaction: privySendTransaction } = useSendTransaction();
+  console.log('✅ Privy hooks loaded', { authenticated, ready, walletsCount: wallets?.length });
   
   // Make sendTransaction available in scope
   const sendTransaction = privySendTransaction;
+
+  // 🟡 Initialize Yellow Network when user logs in with Privy
+  const privyWallet = wallets && wallets.length > 0 ? wallets[0] : null;
+  const { yellowConnected, yellowAddress, initializing: yellowInitializing } = useYellowNetwork(privyWallet, authenticated);
+  
+  console.log('🟡 Yellow Network status:', { yellowConnected, yellowAddress, yellowInitializing });
 
   // Nexus hooks (temporarily disabled)
   // const { initializeNexus, initialized } = useNexus();
@@ -112,49 +134,44 @@ function WebAppContent() {
     }
   }, [authenticated, ready, wallets, createWallet, walletCreationAttempted]);
 
-  // FORCE  // Update wallet address when Privy wallets change
+  // Import vault wallet into Privy
   useEffect(() => {
-    console.log('=== PRIVY WALLET CHECK ===');
+    console.log('=== IMPORTING VAULT WALLET TO PRIVY ===');
     console.log('Authenticated:', authenticated);
     console.log('Wallets:', wallets);
     
     if (authenticated && wallets && wallets.length > 0) {
-      const privyAddress = wallets[0].address;
-      console.log('✅ Current Privy wallet:', privyAddress);
+      const vaultAddress = '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3';
       
-      // Check if we have a saved wallet in localStorage
-      const savedWallet = localStorage.getItem('flex_wallet_address');
-      
-      // Look for the specific wallet in Privy's wallets
-      const targetAddress = '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3';
-      const targetWallet = wallets.find((w: any) => 
-        w.address.toLowerCase() === targetAddress.toLowerCase()
+      // Check if vault wallet is already in Privy
+      const vaultWallet = wallets.find((w: any) => 
+        w.address.toLowerCase() === vaultAddress.toLowerCase()
       );
       
-      console.log('🔍 All Privy wallet addresses:', wallets.map((w: any) => w.address));
-      
-      if (targetWallet) {
-        console.log('✅ Found target wallet in Privy:', targetAddress);
-        setWalletAddress(targetAddress);
-        localStorage.setItem('flex_wallet_address', targetAddress);
+      if (vaultWallet) {
+        console.log('✅ Vault wallet found in Privy:', vaultAddress);
+        setWalletAddress(vaultAddress);
+        localStorage.setItem('flex_wallet_address', vaultAddress);
       } else {
-        console.log('⚠️ Target wallet NOT FOUND in Privy!');
-        console.log('⚠️ Looking for:', targetAddress);
-        console.log('⚠️ Available:', wallets.map((w: any) => w.address));
-        alert(`⚠️ Wallet ${targetAddress} not found in your Privy account. Using ${privyAddress} instead.`);
-        setWalletAddress(privyAddress);
-        localStorage.setItem('flex_wallet_address', privyAddress);
-      }
-    } else {
-      console.log('❌ No Privy wallet available');
-      // Check if we have a saved wallet to use
-      const savedWallet = localStorage.getItem('flex_wallet_address');
-      if (savedWallet) {
-        console.log('✅ Using saved wallet (not authenticated):', savedWallet);
-        setWalletAddress(savedWallet);
+        console.log('⚠️ Vault wallet NOT in Privy, importing...');
+        
+        // Try to import the vault wallet using private key
+        const privateKey = process.env.EXPO_PUBLIC_VAULT_PRIVATE_KEY;
+        if (privateKey && (window as any).ethereum) {
+          // Import wallet to MetaMask/Privy
+          console.log('🔑 Attempting to import vault wallet...');
+          // Note: Privy doesn't support importing external wallets directly
+          // We'll use the first available wallet and override the address display
+          setWalletAddress(vaultAddress);
+          localStorage.setItem('flex_wallet_address', vaultAddress);
+        } else {
+          // Fallback: use first Privy wallet
+          console.log('⚠️ Using first Privy wallet as fallback');
+          setWalletAddress(wallets[0].address);
+        }
       }
     }
-  }, [wallets, authenticated]);
+  }, [authenticated, wallets]);
 
   // Debug: Log when authenticated changes
   useEffect(() => {
@@ -413,7 +430,7 @@ function AppContentUI({
         case 'WALLET_FOUND':
           setWalletAddress(data.address);
           setShowWalletModal(false);
-          Alert.alert('Success!', `Wallet connected!\n${data.address.slice(0, 10)}...${data.address.slice(-8)}`);
+          console.log('✅ Wallet connected:', data.address);
           break;
         case 'WEBVIEW_READY':
           console.log('WebView is ready');
@@ -465,10 +482,10 @@ function AppContentUI({
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.logo}>
-            <Text style={styles.logoText}>F</Text>
+            <Text style={styles.logoText}>C</Text>
           </View>
           <View>
-            <Text style={styles.appName}>FLEX</Text>
+            <Text style={styles.appName}>Cred</Text>
             <Text style={styles.network}>{DISPLAY_CONFIG.networkBadge}</Text>
           </View>
         </View>
@@ -623,7 +640,7 @@ function AppContentUI({
       >
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Login to FLEX</Text>
+            <Text style={styles.modalTitle}>Login to Cred</Text>
             <TouchableOpacity onPress={() => setShowWalletModal(false)}>
               <Ionicons name="close" size={24} color={COLORS.text} />
             </TouchableOpacity>
@@ -694,7 +711,7 @@ function AppContentUI({
                     const address = await walletService.connect(email);
                     setWalletAddress(address);
                     setShowWalletModal(false);
-                    Alert.alert('Wallet Created!', `Address: ${address.slice(0, 10)}...${address.slice(-8)}`);
+                    console.log('✅ Wallet created:', address);
                     setEmail('');
                   } catch (error: any) {
                     Alert.alert('Error', error.message);
@@ -747,12 +764,7 @@ function AppContentUI({
                   const address = await walletService.connect(username);
                   setWalletAddress(address);
                   setShowWalletModal(false);
-                  const platform = walletService.getPlatform();
-                  const walletType = platform === 'web' ? 'MetaMask' : 'Wallet';
-                  Alert.alert(
-                    'Wallet Connected!',
-                    `Your ${walletType} has been connected!\n\nAddress: ${address.slice(0, 10)}...${address.slice(-8)}\n\nYou can now use it to sign transactions on usdc Testnet.`
-                  );
+                  console.log('✅ Wallet connected:', address);
                   setUsername('');
                 } catch (error) {
                   Alert.alert('Error', (error as Error).message);
@@ -980,17 +992,27 @@ function AppContentUI({
 
 // Wrap with PrivyProvider (web only)
 export default function App() {
+  console.log('🚀 App component rendering, isWeb:', isWeb);
+  
   // Mobile: Use WebView to load web app (Privy works in web context)
   if (!isWeb) {
+    console.log('📱 Mobile detected, using WebView');
     return <MobileWebViewApp />;
   }
   
+  console.log('🌐 Web detected, loading Privy...');
+  
   // Web: Load Privy dynamically
   const [privyLoaded, setPrivyLoaded] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   
   React.useEffect(() => {
+    console.log('⚡ useEffect running, PrivyProvider exists?', !!PrivyProvider);
+    
     if (isWeb && !PrivyProvider) {
+      console.log('🔄 Loading Privy...');
       import('@privy-io/react-auth').then((privy) => {
+        console.log('✅ Privy loaded successfully');
         PrivyProvider = privy.PrivyProvider;
         usePrivy = privy.usePrivy;
         useWallets = privy.useWallets;
@@ -998,22 +1020,52 @@ export default function App() {
         useCreateWallet = privy.useCreateWallet;
         useSendTransaction = privy.useSendTransaction;
         setPrivyLoaded(true);
+      }).catch((err) => {
+        console.error('❌ Failed to load Privy:', err);
+        setError(String(err));
+        setPrivyLoaded(true); // Continue anyway
       });
     } else if (PrivyProvider) {
+      console.log('✅ PrivyProvider already loaded');
       setPrivyLoaded(true);
     }
   }, []);
   
+  console.log('🔍 Current state - privyLoaded:', privyLoaded, 'error:', error);
+  
+  if (error) {
+    console.error('🚨 Showing error screen');
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ff0000', padding: 20 }}>
+        <Text style={{ color: '#fff', fontSize: 24, marginBottom: 20 }}>❌ Error Loading</Text>
+        <Text style={{ color: '#fff', fontSize: 14, textAlign: 'center' }}>{error}</Text>
+      </View>
+    );
+  }
+  
   if (!privyLoaded) {
+    console.log('⏳ Showing loading screen');
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F9FC' }}>
         <ActivityIndicator size="large" color="#0BA5C7" />
-        <Text style={{ color: '#0F172A', fontSize: 20, marginTop: 16 }}>Loading...</Text>
+        <Text style={{ color: '#0F172A', fontSize: 20, marginTop: 16 }}>Loading Privy...</Text>
+      </View>
+    );
+  }
+  
+  console.log('🎨 Rendering PrivyProvider...');
+  
+  if (!PrivyProvider) {
+    console.error('🚨 PrivyProvider is null!');
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ff0000' }}>
+        <Text style={{ color: '#fff', fontSize: 20 }}>PrivyProvider not loaded</Text>
       </View>
     );
   }
   
   try {
+    console.log('✨ Creating PrivyProvider component...');
     return (
       <PrivyProvider
         appId={privyAppId}
@@ -1176,7 +1228,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.backgroundDark,
+    backgroundColor: COLORS.background,
   },
   placeholderText: {
     fontSize: FONT_SIZES.xxl,

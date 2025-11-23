@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ActivityIndicator, Linking, Switch } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS } from '../theme/colors';
 import { walletService, getTransactionUrl } from '../services/walletService';
-import { availNexusService } from '../services/availNexusService';
 
 interface SendScreenProps {
   walletAddress: string;
@@ -15,7 +14,6 @@ export function SendScreen({ walletAddress, onClose, onSend }: SendScreenProps) 
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [useAvailNexus, setUseAvailNexus] = useState(false);
 
   console.log('📱 SendScreen rendered with:', { walletAddress, hasOnSend: !!onSend });
 
@@ -39,29 +37,6 @@ export function SendScreen({ walletAddress, onClose, onSend }: SendScreenProps) 
 
     try {
       setIsSending(true);
-      
-      // Use Avail Nexus for cross-chain messaging if enabled
-      if (useAvailNexus) {
-        const message = await availNexusService.sendMessage(
-          walletAddress,
-          recipient,
-          amountNum,
-          'USDC'
-        );
-        
-        Alert.alert(
-          '✅ Sent via Avail Nexus!',
-          `Cross-chain message sent!\n\nAmount: ${amount} USDC\nTo: ${recipient.substring(0, 10)}...\n\nAvail TX: ${message.availTxHash?.substring(0, 20)}...`,
-          [
-            { text: 'OK', onPress: () => {
-              setRecipient('');
-              setAmount('');
-              onClose();
-            }}
-          ]
-        );
-        return;
-      }
       
       // Use onSend prop if provided (Privy), otherwise use walletService (fallback)
       const result = onSend 
@@ -126,22 +101,6 @@ export function SendScreen({ walletAddress, onClose, onSend }: SendScreenProps) 
               </Text>
             </View>
           </View>
-        </View>
-
-        <View style={styles.availToggle}>
-          <View style={styles.availInfo}>
-            <Ionicons name="flash" size={20} color={COLORS.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.availTitle}>Avail Nexus</Text>
-              <Text style={styles.availSubtitle}>Cross-chain messaging via Avail DA</Text>
-            </View>
-          </View>
-          <Switch
-            value={useAvailNexus}
-            onValueChange={setUseAvailNexus}
-            trackColor={{ false: COLORS.border, true: COLORS.primary + '40' }}
-            thumbColor={useAvailNexus ? COLORS.primary : COLORS.textSecondary}
-          />
         </View>
 
         <View style={styles.inputSection}>
@@ -465,32 +424,5 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: COLORS.border,
     marginVertical: SPACING.md,
-  },
-  availToggle: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: COLORS.card,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  availInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    flex: 1,
-  },
-  availTitle: {
-    fontSize: FONT_SIZES.md,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-  availSubtitle: {
-    fontSize: FONT_SIZES.xs,
-    color: COLORS.textSecondary,
-    marginTop: 2,
   },
 });

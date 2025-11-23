@@ -43,7 +43,7 @@ export class X402Service {
   }) {
     this.facilitatorUrl = config.facilitatorUrl || 'https://facilitator.aeon.xyz';
     this.authToken = config.authToken || 'Bearer 123';
-    this.recipientAddress = config.recipientAddress || '0x5a26514ce0af943540407170b09cea03cbff5570';
+    this.recipientAddress = config.recipientAddress || '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3';
     
     // Create wallet client if private key provided
     if (config.privateKey) {
@@ -325,6 +325,6 @@ export class X402Service {
 export const x402Service = new X402Service({
   facilitatorUrl: 'https://facilitator.aeon.xyz',
   authToken: 'Bearer 123',
-  recipientAddress: '0x5a26514ce0af943540407170b09cea03cbff5570', // Credit vault
+  recipientAddress: '0x9C6CCbC95c804C3FB0024e5f10e2e978855280B3', // Credit vault (wallet with funds)
   privateKey: 'ec2180c5dfeaf12266daf34073e7de0c3a498014b2a35294e7bb7eb68ab3739a',
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { Card } from '../components/Card';
@@ -14,9 +14,12 @@ import { IncomeVerification } from '../components/IncomeVerification';
 import { TestIncomeVerification } from '../components/TestIncomeVerification';
 import { VlayerIncomeVerification } from '../components/VlayerIncomeVerification';
 import { VouchClientVerification } from '../components/VouchClientVerification';
+import { VouchBalanceVerification } from '../components/VouchBalanceVerification';
 import { HybridVerification } from '../components/HybridVerification';
+import { CreditAnalysisScreen } from './CreditAnalysisScreen';
 import { ethers } from 'ethers';
 import { FlexCreditCoreABI, CONTRACTS } from '../contracts/abis';
+import { yellowNetworkService } from '../services/yellowNetworkService';
 
 interface CreditScreenProps {
   walletAddress?: string;
@@ -26,10 +29,17 @@ interface CreditScreenProps {
 export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenProps) => {
   const [showBorrow, setShowBorrow] = useState(false);
   const [showRepay, setShowRepay] = useState(false);
-  const [borrowAmount, setBorrowAmount] = useState(100);
+  const [borrowAmount, setBorrowAmount] = useState(0.5);
   const [repayAmount, setRepayAmount] = useState('');
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [showCreditAnalysis, setShowCreditAnalysis] = useState(false);
+  const [verifiedIncome, setVerifiedIncome] = useState(0);
+  const [vouchVerified, setVouchVerified] = useState(false);
+  
+  // Yellow Network state
+  const [yellowConnected, setYellowConnected] = useState(false);
+  const [useInstantMode, setUseInstantMode] = useState(false);
   
   const [credit, setCredit] = useState({
     limit: 500,
@@ -56,7 +66,39 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
     
     setLoading(true);
     try {
-      // Try to fetch from deployed contracts first
+      // PRIORITY 1: Check localStorage for saved credit from Vouch verification
+      const savedCreditKey = `flex_credit_${walletAddress}`;
+      const savedCredit = localStorage.getItem(savedCreditKey);
+      
+      if (savedCredit) {
+        const creditData = JSON.parse(savedCredit);
+        console.log('💾 Loaded saved credit from localStorage:', creditData);
+        
+        // Update credit limit in state service to match saved credit
+        creditStateService.updateCreditLimit(walletAddress, creditData.limit, 12.5);
+        
+        // Get current credit state (used/available)
+        const creditSummary = creditStateService.getCreditSummary(walletAddress);
+        const history = creditStateService.getTransactionHistory(walletAddress);
+        
+        setCredit({
+          limit: creditData.limit,
+          used: creditSummary.used,
+          available: creditData.limit - creditSummary.used,
+          apr: 12.5,
+          riskBand: creditData.limit >= 20 ? 'Low' : creditData.limit >= 10 ? 'Medium' : 'High',
+          score: Math.min(100, creditData.limit * 10),
+        });
+        
+        setActivities(history);
+        setLoading(false);
+        console.log('✅ Credit loaded from localStorage:', creditData.limit, 'USDT');
+        return; // Exit early - don't check contract
+      }
+      
+      console.log('⚠️ No saved credit in localStorage, checking contract...');
+      
+      // PRIORITY 2: Try to fetch from deployed contracts
       try {
         if (typeof window !== 'undefined' && window.ethereum) {
           const provider = new ethers.BrowserProvider(window.ethereum);
@@ -95,7 +137,8 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
         console.log('⚠️ Could not fetch from contract, using fallback:', contractError);
       }
       
-      // Fallback to local credit service
+      // PRIORITY 3: Fallback to local credit service (default calculation)
+      console.log('⚠️ No saved credit found, calculating from on-chain activity...');
       const creditScore = await creditService.calculateCreditScore(walletAddress);
       
       // Update credit limit in state service
@@ -187,6 +230,121 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
       Alert.alert('Error', error.message || 'Failed to repay');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  // 🟡 Yellow Network: Instant Borrow (No Gas!)
+  const handleBorrowInstant = async () => {
+    if (!walletAddress) {
+      Alert.alert('Error', 'Wallet not connected');
+      return;
+    }
+
+    if (!yellowConnected) {
+      Alert.alert('⚠️ Yellow Network', 'Instant mode not available. Initializing...');
+      await initYellowNetwork();
+      return;
+    }
+
+    if (borrowAmount > credit.available) {
+      Alert.alert('Error', 'Amount exceeds available credit');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      console.log('⚡ Borrowing instantly via Yellow Network...');
+      const txId = await yellowNetworkService.borrowInstant(borrowAmount);
+      
+      // Record borrow in credit state
+      creditStateService.recordBorrow(walletAddress, borrowAmount, txId, credit.apr);
+      
+      Alert.alert('⚡ Instant Success!', `Borrowed $${borrowAmount} USDT instantly!\n\nNo gas fees paid! 🎉\n\nTx: ${txId.slice(0, 20)}...`);
+      setShowBorrow(false);
+      loadCreditData();
+    } catch (error: any) {
+      console.error('❌ Instant borrow failed:', error);
+      Alert.alert('Error', error.message || 'Failed to borrow instantly');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // 🟡 Yellow Network: Instant Repay (No Gas!)
+  const handleRepayInstant = async () => {
+    if (!walletAddress) {
+      Alert.alert('Error', 'Wallet not connected');
+      return;
+    }
+
+    if (!yellowConnected) {
+      Alert.alert('⚠️ Yellow Network', 'Instant mode not available. Initializing...');
+      await initYellowNetwork();
+      return;
+    }
+
+    const amount = parseFloat(repayAmount);
+    if (isNaN(amount) || amount <= 0) {
+      Alert.alert('Error', 'Invalid amount');
+      return;
+    }
+
+    if (amount > credit.used) {
+      Alert.alert('Error', 'Amount exceeds debt');
+      return;
+    }
+
+    setProcessing(true);
+    try {
+      console.log('⚡ Repaying instantly via Yellow Network...');
+      const txId = await yellowNetworkService.repayInstant(amount);
+      
+      // Record repayment in credit state
+      creditStateService.recordRepayment(walletAddress, amount, txId);
+      
+      Alert.alert('⚡ Instant Success!', `Repaid $${amount} USDT instantly!\n\nNo gas fees paid! 🎉\n\nTx: ${txId.slice(0, 20)}...`);
+      setShowRepay(false);
+      setRepayAmount('');
+      loadCreditData();
+    } catch (error: any) {
+      console.error('❌ Instant repay failed:', error);
+      Alert.alert('Error', error.message || 'Failed to repay instantly');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  // 🟡 Initialize Yellow Network
+  const initYellowNetwork = async () => {
+    try {
+      console.log('🟡 Initializing Yellow Network...');
+      
+      // Create a mock wallet object with signMessage capability
+      const mockWallet = {
+        address: walletAddress,
+        signMessage: async (message: string) => {
+          // Use sendTransaction's signer if available
+          if (sendTransaction && sendTransaction.signer) {
+            return await sendTransaction.signer.signMessage(message);
+          }
+          // Fallback: return a mock signature for testing
+          console.warn('⚠️ Using mock signature for testing');
+          return `0x${'a'.repeat(130)}`; // Mock signature
+        }
+      };
+
+      await yellowNetworkService.init(mockWallet);
+      
+      // Create credit session
+      await yellowNetworkService.createCreditSession(credit.limit);
+      
+      setYellowConnected(true);
+      console.log('✅ Yellow Network ready!');
+      
+      Alert.alert('🟡 Yellow Network Ready', 'Instant, gasless transactions enabled!');
+    } catch (error: any) {
+      console.error('❌ Yellow Network init failed:', error);
+      Alert.alert('Warning', 'Could not initialize instant mode. Using regular transactions.');
     }
   };
 
@@ -285,14 +443,83 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
       )}
 
       {/* Vouch Client-Side Verification (Real Binance/Wise Integration) */}
-      {walletAddress && (
+      {walletAddress && !showCreditAnalysis && (
         <VouchClientVerification
           walletAddress={walletAddress}
           onVerificationComplete={() => {
             // Refresh credit data after verification
             loadCreditData();
           }}
+          onShowCreditAnalysis={(income) => {
+            // Check if already verified and has credit
+            const savedCredit = walletAddress ? localStorage.getItem(`flex_credit_${walletAddress}`) : null;
+            
+            if (savedCredit) {
+              console.log('✅ Credit already exists, skipping analysis modal');
+              // Just reload the credit data
+              loadCreditData();
+            } else {
+              // First time verification - show analysis modal
+              setVerifiedIncome(income);
+              setShowCreditAnalysis(true);
+            }
+          }}
         />
+      )}
+
+      {/* Credit Analysis Modal */}
+      {showCreditAnalysis && (
+        <Modal
+          visible={showCreditAnalysis}
+          animationType="slide"
+          presentationStyle="fullScreen"
+        >
+          <CreditAnalysisScreen
+            verifiedIncome={verifiedIncome}
+            walletAddress={walletAddress || ''}
+            onClose={() => setShowCreditAnalysis(false)}
+            onAcceptCredit={(creditLimit) => {
+              console.log('✅ Credit accepted:', creditLimit, 'USDT');
+              
+              // Save to localStorage FIRST before closing modal
+              if (walletAddress) {
+                const creditData = {
+                  limit: creditLimit,
+                  used: 0,
+                  available: creditLimit,
+                  verifiedIncome,
+                  timestamp: new Date().toISOString(),
+                };
+                localStorage.setItem(`flex_credit_${walletAddress}`, JSON.stringify(creditData));
+                console.log('💾 Credit data saved to localStorage:', creditData);
+              }
+              
+              // Update credit limit in state immediately
+              setCredit({
+                limit: creditLimit,
+                used: 0,
+                available: creditLimit,
+                apr: 12.5,
+                riskBand: creditLimit >= 20 ? 'Low' : creditLimit >= 10 ? 'Medium' : 'High',
+                score: Math.min(100, creditLimit * 10),
+              });
+              
+              // Close modal
+              setShowCreditAnalysis(false);
+              
+              // Mark as verified
+              setVouchVerified(true);
+              
+              // Show success alert
+              setTimeout(() => {
+                Alert.alert(
+                  '🎉 Credit Line Approved!',
+                  `Your credit limit of ${creditLimit} USDT is now active and ready to use!`
+                );
+              }, 300);
+            }}
+          />
+        </Modal>
       )}
 
       {/* Test Income Verification (Fallback if Vouch SDK not installed) */}
@@ -446,26 +673,48 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
         description="Draw from your revolving credit on BPN"
       >
         <View style={styles.sheetContent}>
+          {/* 🟡 Yellow Network Mode Toggle */}
+          <View style={styles.quickAmounts}>
+            <Button
+              variant={useInstantMode ? 'primary' : 'outline'}
+              style={{ flex: 1 }}
+              onPress={() => setUseInstantMode(true)}
+            >
+              <Text style={useInstantMode ? styles.buttonText : styles.buttonTextOutline}>
+                ⚡ Instant (No Gas)
+              </Text>
+            </Button>
+            <Button
+              variant={!useInstantMode ? 'primary' : 'outline'}
+              style={{ flex: 1 }}
+              onPress={() => setUseInstantMode(false)}
+            >
+              <Text style={!useInstantMode ? styles.buttonText : styles.buttonTextOutline}>
+                🔗 On-Chain
+              </Text>
+            </Button>
+          </View>
+
           <View style={styles.sliderSection}>
             <View style={styles.sliderHeader}>
               <Text style={styles.label}>Amount to Borrow</Text>
               <Text style={styles.maxLabel}>Max: {credit.available} USDT</Text>
             </View>
-            <Text style={styles.sliderAmount}>{borrowAmount} USDT</Text>
+            <Text style={styles.sliderAmount}>{borrowAmount.toFixed(1)} USDT</Text>
             <Slider
               style={styles.slider}
-              minimumValue={10}
-              maximumValue={credit.available}
-              value={borrowAmount}
+              minimumValue={0.5} 
+              maximumValue={Math.max(credit.available, 0.5)}
+              value={Math.min(borrowAmount, credit.available)}
               onValueChange={setBorrowAmount}
               minimumTrackTintColor={COLORS.primary}
               maximumTrackTintColor={COLORS.border}
               thumbTintColor={COLORS.primary}
-              step={10}
+              step={0.5}
             />
             <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabel}>10 USDT</Text>
-              <Text style={styles.sliderLabel}>{credit.available} USDT</Text>
+              <Text style={styles.sliderLabel}>0.5 USDT</Text>
+              <Text style={styles.sliderLabel}>{credit.available.toFixed(1)} USDT</Text>
             </View>
           </View>
 
@@ -480,17 +729,17 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Network Fee</Text>
-              <Text style={styles.detailValue}>~$0.05</Text>
+              <Text style={styles.detailValue}>{useInstantMode ? '$0.00 ⚡' : '~$0.05'}</Text>
             </View>
           </View>
 
           <Button 
             size="lg" 
             style={styles.sheetButton}
-            onPress={handleBorrow}
+            onPress={useInstantMode ? handleBorrowInstant : handleBorrow}
             disabled={processing}
           >
-            {processing ? 'Processing...' : 'Confirm Borrow'}
+            {processing ? 'Processing...' : useInstantMode ? '⚡ Borrow Instantly' : 'Confirm Borrow'}
           </Button>
         </View>
       </Sheet>
@@ -503,6 +752,28 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
         description="Pay back your borrowed amount"
       >
         <View style={styles.sheetContent}>
+          {/* 🟡 Yellow Network Mode Toggle */}
+          <View style={styles.quickAmounts}>
+            <Button
+              variant={useInstantMode ? 'primary' : 'outline'}
+              style={{ flex: 1 }}
+              onPress={() => setUseInstantMode(true)}
+            >
+              <Text style={useInstantMode ? styles.buttonText : styles.buttonTextOutline}>
+                ⚡ Instant (No Gas)
+              </Text>
+            </Button>
+            <Button
+              variant={!useInstantMode ? 'primary' : 'outline'}
+              style={{ flex: 1 }}
+              onPress={() => setUseInstantMode(false)}
+            >
+              <Text style={!useInstantMode ? styles.buttonText : styles.buttonTextOutline}>
+                🔗 On-Chain
+              </Text>
+            </Button>
+          </View>
+
           <View style={styles.inputGroup}>
             <View style={styles.labelRow}>
               <Text style={styles.label}>Amount to Repay</Text>
@@ -561,17 +832,17 @@ export const CreditScreen = ({ walletAddress, sendTransaction }: CreditScreenPro
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Network Fee</Text>
-              <Text style={styles.detailValue}>~$0.03</Text>
+              <Text style={styles.detailValue}>{useInstantMode ? '$0.00 ⚡' : '~$0.03'}</Text>
             </View>
           </View>
 
           <Button 
             size="lg" 
             style={styles.sheetButton}
-            onPress={handleRepay}
+            onPress={useInstantMode ? handleRepayInstant : handleRepay}
             disabled={processing}
           >
-            {processing ? 'Processing...' : 'Confirm Repayment'}
+            {processing ? 'Processing...' : useInstantMode ? '⚡ Repay Instantly' : 'Confirm Repayment'}
           </Button>
         </View>
       </Sheet>

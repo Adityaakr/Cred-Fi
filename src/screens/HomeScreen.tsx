@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Platform, Clipboard } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Platform, Clipboard, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
@@ -14,6 +14,7 @@ import { COLORS, SPACING, FONT_SIZES, BORDER_RADIUS, FONTS, GRADIENTS } from '..
 import { walletService } from '../services/walletService';
 import { tokenService } from '../services/tokenService';
 import { DISPLAY_CONFIG } from '../config/network';
+// import { NexusSendScreen } from './NexusSendScreen';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -28,6 +29,7 @@ export const HomeScreen = ({ walletAddress, balance: balanceProp, onSendClick, o
   const [showSend, setShowSend] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
+  const [showMultiChainSend, setShowMultiChainSend] = useState(false);
   const [usdcBalance, setUsdcBalance] = useState<string>('0');
   const [maticBalance, setMaticBalance] = useState<string>(balanceProp || '0');
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
@@ -176,9 +178,9 @@ export const HomeScreen = ({ walletAddress, balance: balanceProp, onSendClick, o
       {/* Quick Actions */}
       <View style={styles.quickActions}>
         <TouchableOpacity 
-          style={styles.actionButton} 
+          style={styles.actionButton}
           onPress={() => {
-            console.log('🚀 HomeScreen Send clicked, onSendClick:', !!onSendClick);
+            console.log('🚀 HomeScreen Send clicked');
             if (onSendClick) {
               onSendClick();
             } else {
@@ -441,6 +443,21 @@ export const HomeScreen = ({ walletAddress, balance: balanceProp, onSendClick, o
         </View>
       </Sheet>
 
+      {/* Nexus Send Modal - Disabled for now */}
+      {/* <Modal
+        visible={showMultiChainSend}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowMultiChainSend(false)}
+      >
+        {walletAddress && (
+          <NexusSendScreen
+            walletAddress={walletAddress}
+            onClose={() => setShowMultiChainSend(false)}
+          />
+        )}
+      </Modal> */}
+
       {/* Swap Sheet */}
       <Sheet
         visible={showSwap}
@@ -517,6 +534,17 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: '600',
   },
+  actionLabel: {
+    fontSize: FONT_SIZES.sm,
+    color: COLORS.text,
+    marginTop: SPACING.xs,
+    fontWeight: '500',
+  },
+  actionSubtext: {
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
   balanceBreakdown: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -557,11 +585,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: SPACING.sm,
-  },
-  actionLabel: {
-    fontSize: FONT_SIZES.xs,
-    fontWeight: '600',
-    color: COLORS.text,
   },
   chartCard: {
     marginHorizontal: SPACING.lg,

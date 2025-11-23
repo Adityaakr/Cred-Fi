@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Credi",
-    "slug": "credi-app",
+    "name": "Cred",
+    "slug": "cred-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,7 +20,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.credi.app"
+      "bundleIdentifier": "com.cred.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -29,7 +29,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.credi.app"
+      "package": "com.cred.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
